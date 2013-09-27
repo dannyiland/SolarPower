@@ -10,12 +10,13 @@
   int buttonState = 0;
   boolean on;
   char input = 0;
-  double offset = 0;
   SPIFlash flash(8, 0xEF30);
+  float startupOffset;
   union float2bytes { float f; byte b[4]; };
    
   float2bytes current_f2b;
   float2bytes voltage_f2b;
+  float2bytes offset_f2b; // Store offset in flash
   
   void setup(void) 
   {
@@ -31,11 +32,14 @@
       Serial.println("Flash memory OK!");
     else
       Serial.println("Flash memory init FAIL!");
-     Serial.println("Erasing Flash chip"); 
-     flash.chipErase(); // must do this, or overwriting flash will not work
-     while(flash.busy());
-     Serial.println("Logging current and voltage every 10 seconds");
-     offset = 0; // Flash memory position
+    // Don't overwrite old data!
+    // Pull offset from flash.
+    for ( int i=0; i < sizeof(float); i++ ) {
+    	offset_f2b.b[i] = flash.readByte(i);
+    }
+    Serial.print("Starting at offset: ");
+    Serial.println(offset_f2b.f);
+    startupOffset = offset_f2b.f;
   }
   
   void loop(void) 
@@ -48,7 +52,7 @@
         Serial.println("Flash content:");
         int c = 0;
   
-        while(c<=offset){
+        while(c<=offset_f2b.f){
           Serial.print(flash.readByte(c++), HEX
           );
           Serial.print('.');
@@ -59,8 +63,8 @@
       else if (input == 'd') //d=dump flash area
       {
         Serial.println("Logged readings:");
-        int counter = 0;
-        while(counter<=offset-8){
+        double counter = 4096;
+        while(counter<=offset_f2b.f-8){
           for ( int i=0; i < sizeof(float); i++ ) {
             voltage_f2b.b[i] = flash.readByte(counter+i);
            }
@@ -71,15 +75,17 @@
            counter = counter + 4;
            // TODO: Use a real time clock to give actual times
            Serial.print("Time: ");
-           Serial.print(counter/8 * 10);
-           Serial.println("seconds after start");
+           Serial.print((counter - startupOffset)/8 * 10);
+           Serial.println(" seconds");
+
            // Output the voltage and current over Serial
-           Serial.print("Load Voltage:  ");
+           Serial.print("Voltage:  ");
 	   Serial.print(voltage_f2b.f, 2);
 	   Serial.println(" V");
            Serial.print("Current:       "); 
 	   Serial.print(current_f2b.f, 2);
 	   Serial.println(" mA");
+           delay(20); // To prevent the output buffer filling.
         }
       Serial.println();
       }
@@ -89,7 +95,9 @@
         flash.chipErase();
         while(flash.busy());
         Serial.println("DONE");
-        offset = 0;
+        offset_f2b.f = 4096;
+        startupOffset = offset_f2b.f;
+        ;
       }
     }
       
@@ -128,12 +136,16 @@
     voltage_f2b.f = loadvoltage;
     current_f2b.f = current_mA;
     for ( int i=0; i < sizeof(float); i++ ) {
-       flash.writeByte(offset+i, voltage_f2b.b[i]);
+       flash.writeByte(offset_f2b.f+i, voltage_f2b.b[i]);
     }
-    offset = offset + 4;
+    offset_f2b.f = offset_f2b.f + 4;
     for ( int i=0; i < sizeof(float); i++ ) {
-      flash.writeByte(offset+i, current_f2b.b[i]);
+      flash.writeByte(offset_f2b.f+i, current_f2b.b[i]);
     }
-    offset = offset + 4;
+    flash.blockErase4K(0);
+    offset_f2b.f = offset_f2b.f + 4;
+    for ( int i=0; i < sizeof(float); i++ ) {
+      flash.writeByte(i, offset_f2b.b[i]);
+    }
     delay(10000);
   }
