@@ -6,7 +6,7 @@
   
   Adafruit_INA219 ina219; // Power measurement board
   const int buttonPin = 14; // AKA A0, pin with on/off button for load
-  const int TIP120pin = 5; //TIP120 Base pin, set high to control 12v output
+  const int TIP120pin = 5; //TIP120 Base pin, set high to control 12v output. Voltage Drop 0.7V
   int buttonState = 0;
   boolean on;
   char input = 0;
