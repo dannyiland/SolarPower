@@ -3,13 +3,75 @@
   #include <SPIFlash.h>
   #include <SPI.h>
   #include <avr/wdt.h>
+  #include <stdio.h>
+  #include <DS1302.h>
   
+  namespace {
+
+// Set the appropriate digital I/O pin connections. These are the pin
+// assignments for the Arduino as well for as the DS1302 chip. See the DS1302
+// datasheet:
+//
+//   http://datasheets.maximintegrated.com/en/ds/DS1302.pdf
+const int kCePin   = 15;  // Chip Enable
+const int kIoPin   = 16;  // Input/Output
+const int kSclkPin = 17;  // Serial Clock
+
+// Create a DS1302 object.
+DS1302 rtc(kCePin, kIoPin, kSclkPin);
+
+String dayAsString(const Time::Day day) {
+  switch (day) {
+    case Time::kSunday: return "Sunday";
+    case Time::kMonday: return "Monday";
+    case Time::kTuesday: return "Tuesday";
+    case Time::kWednesday: return "Wednesday";
+    case Time::kThursday: return "Thursday";
+    case Time::kFriday: return "Friday";
+    case Time::kSaturday: return "Saturday";
+  }
+  return "(unknown day)";
+}
+
+void printTime() {
+  // Get the current time and date from the chip.
+  Time t = rtc.time();
+
+  // Name the day of the week.
+  const String day = dayAsString(t.day);
+
+  // Format the time and date and insert into the temporary buffer.
+  char buf[50];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+           t.yr, t.mon, t.date,
+           t.hr, t.min, t.sec);
+
+  // Print the formatted string to serial so we can see the time.
+  Serial.println(buf);
+}
+
+byte* logTime() {
+  // Insert WHAT YEAR IS IT?! meme here
+  byte time[5];
+  Time t= rtc.time();
+  time[0] = t.mon;
+  time[1] = t.date;
+  time[2] = t.hr;
+  time[3] = t.min;
+  time[4] = t.sec;
+  return time;
+}
+  
+
+}  // namespace
+
   Adafruit_INA219 ina219; // Power measurement board
   const int buttonPin = 14; // AKA A0, pin with on/off button for load
   const int TIP120pin = 5; //TIP120 Base pin, set high to control 12v output. Voltage Drop 0.7V
   int buttonState = 0;
   boolean on;
   char input = 0;
+  const int poll_time = 1000;
   SPIFlash flash(8, 0xEF30);
   float startupOffset;
   union float2bytes { float f; byte b[4]; };
@@ -28,6 +90,13 @@
     Serial.begin(115200);
     Serial.println("Measuring and logging voltage and current ...");
     ina219.begin();
+    rtc.writeProtect(false);
+    rtc.halt(false);
+    // Make a new time object to set the date and time.
+    // Sunday, September 22, 2013 at 01:38:50.
+    Time t(2013, 10, 2, 11, 30, 0, Time::kWednesday);
+    // Set the time and date on the chip.
+    rtc.time(t);
     if (flash.initialize())
       Serial.println("Flash memory OK!");
     else
@@ -85,6 +154,7 @@
            Serial.print("Current:       "); 
 	   Serial.print(current_f2b.f, 2);
 	   Serial.println(" mA");
+           Serial.print("Power:         "); Serial.print((current_f2b.f*voltage_f2b.f)/1000); Serial.println(" W");   
            delay(20); // To prevent the output buffer filling.
         }
       Serial.println();
@@ -125,14 +195,15 @@
     busvoltage = ina219.getBusVoltage_V();
     current_mA = ina219.getCurrent_mA();
     loadvoltage = busvoltage + (shuntvoltage / 1000);
-    
+    printTime();
     Serial.print("Bus Voltage:   "); Serial.print(busvoltage); Serial.println(" V");
     Serial.print("Shunt Voltage: "); Serial.print(shuntvoltage); Serial.println(" mV");
     Serial.print("Load Voltage:  ");
     Serial.print(loadvoltage); Serial.println(" V");
     Serial.print("Current:       "); Serial.print(current_mA); Serial.println(" mA");
+    Serial.print("Power:         "); Serial.print((current_mA*loadvoltage)/1000); Serial.println(" W");   
+    Serial.print("Energy per 24 hours:"); Serial.print(24*(current_mA*loadvoltage)/1000); Serial.println(" Wh");   
     Serial.println("");
-    
     voltage_f2b.f = loadvoltage;
     current_f2b.f = current_mA;
     for ( int i=0; i < sizeof(float); i++ ) {
@@ -147,5 +218,5 @@
     for ( int i=0; i < sizeof(float); i++ ) {
       flash.writeByte(i, offset_f2b.b[i]);
     }
-    delay(10000);
+    delay(poll_time);
   }
